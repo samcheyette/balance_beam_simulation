@@ -1,0 +1,423 @@
+---
+title: "BalanceBeamsSimulation"
+author: "Sam"
+date: "Nov 7, 2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,fig.width=4, fig.height=3,fig.align = "center",cache=TRUE)
+```
+
+```{r, include=FALSE, echo=FALSE}
+library(rstan)
+library(lme4)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(broom)
+library(gridExtra)
+library(patchwork)
+library(latex2exp)
+library(GGally) # for ggpairs 
+library(readr)
+library(kableExtra)
+#library(knitr)
+
+
+
+paper_theme <- theme_classic() + theme( axis.title.x = element_text(size=18),
+  axis.text.x=element_text(colour="black", 
+                           size = 14), 
+  axis.title.y = element_text(size = 18, vjust = 1),
+  axis.text.y  = element_text(size = 14),
+  strip.text=element_text(size=16),
+  legend.title=element_text(size=18),
+  title=element_text(size=14),
+  legend.text=element_text(size=16))  
+
+inv_logit <- function(x) { exp(x)/(1+exp(x))}
+
+
+
+# Function to extract and add subject-level parameter means to df.blocked_10
+add_subject_level_params <- function(df, posterior_samples_lst,
+                                     subject_id_var, param_prefix) {
+  # Extract posterior samples
+
+  # Get the list of parameter names that start with the specified prefix
+  param_names <- grep(paste0("^", param_prefix), names(posterior_samples_lst), value = TRUE)
+  
+  if (length(param_names) > 0) {
+    for (param_name in param_names) {
+      # Initialize a vector to store means
+      subject_means <- rep(NA, nrow(df))
+      
+      for (s in 1:df$NSUBJ) {
+        # Find the rows in df.blocked_10 that correspond to subject s
+        subject_rows <- df[[subject_id_var]] == s
+        
+        # Calculate the mean for this subject from posterior samples
+        subject_means[subject_rows] <- mean(posterior_samples_lst[[param_name]][, s])
+      }
+      
+      # Add means to df.blocked_10 as a new column
+      df[paste0("mean_", param_name)] <- subject_means
+    }
+  } else {
+    cat("No matching parameters found with prefix '", param_prefix, "'.\n")
+  }
+  
+  return(df)
+}
+
+
+
+```
+
+
+```{r}
+
+# Pick a simulated dataset from "same_icpt" or "diff_icpt"
+dataset <- "same_icpt" #(OR diff_icpt)
+
+
+
+df.blocked <- read.csv(paste("datasets/fake_dataset_blocked_",".csv", sep=dataset))
+
+df.blocked <- df.blocked %>%
+        mutate(choseLeft = 1*(NormBeamResponse == "L")) %>%
+        mutate(choseBal = 1*(NormBeamResponse == "B")) %>%
+        mutate(choseRight = 1*(NormBeamResponse == "R")) 
+
+
+df.blocked.50 <- subset(df.blocked, df.blocked$Subject <= 50)
+df.blocked.100 <- subset(df.blocked, df.blocked$Subject <= 100)
+df.blocked.250 <- subset(df.blocked, df.blocked$Subject <= 250)
+
+df.blocked.50$NSUBJ <- length(unique(df.blocked.50$Subject))
+df.blocked.100$NSUBJ <- length(unique(df.blocked.100$Subject))
+
+df.blocked.250$NSUBJ <- length(unique(df.blocked.250$Subject))
+
+
+
+
+
+df.mixed <- read.csv(paste("datasets/fake_dataset_mixed_",".csv", sep=dataset))
+
+df.mixed <- df.mixed %>%
+        mutate(choseLeft = 1*(NormBeamResponse == "L")) %>%
+        mutate(choseBal = 1*(NormBeamResponse == "B")) %>%
+        mutate(choseRight = 1*(NormBeamResponse == "R")) 
+
+
+df.mixed.50 <- subset(df.mixed, df.mixed$Subject <= 50)
+df.mixed.100 <- subset(df.mixed, df.mixed$Subject <= 100)
+df.mixed.250 <- subset(df.mixed, df.mixed$Subject <= 250)
+
+df.mixed.50$NSUBJ <- length(unique(df.mixed.50$Subject))
+df.mixed.100$NSUBJ <- length(unique(df.mixed.100$Subject))
+
+df.mixed.250$NSUBJ <- length(unique(df.mixed.250$Subject))
+
+
+
+
+
+
+```
+
+
+
+
+```{r}
+
+fit.blocked.50 <- readRDS(paste0(paste0("output_", dataset), "/fit.blocked.50.rds"))
+fit.blocked.100 <- readRDS(paste0(paste0("output_", dataset), "/fit.blocked.100.rds"))
+fit.blocked.250 <- readRDS(paste0(paste0("output_", dataset), "/fit.blocked.250.rds"))
+
+
+
+posterior_samples_blocked_50_lst <- rstan::extract(fit.blocked.50)
+posterior_samples_blocked_100_lst <- rstan::extract(fit.blocked.100)
+posterior_samples_blocked_250_lst <- rstan::extract(fit.blocked.250)
+
+posterior_samples.blocked.50 <- as.data.frame(fit.blocked.50)
+posterior_samples.blocked.100 <- as.data.frame(fit.blocked.100)
+posterior_samples.blocked.250 <- as.data.frame(fit.blocked.250)
+
+
+
+
+df.blocked.50 <- add_subject_level_params(df.blocked.50, posterior_samples_blocked_50_lst, "Subject", "useWeightSubj")
+df.blocked.50.subj <- df.blocked.50 %>%
+                  group_by(Subject) %>%
+                  top_n(n=1,wt=ItemID)
+df.blocked.100 <- add_subject_level_params(df.blocked.100, posterior_samples_blocked_100_lst, "Subject", "useWeightSubj")
+
+df.blocked.100.subj <- df.blocked.100 %>%
+                  group_by(Subject) %>%
+                  top_n(n=1,wt=ItemID)
+
+df.blocked.250 <- add_subject_level_params( df.blocked.250, posterior_samples_blocked_250_lst, "Subject", "useWeightSubj")
+
+df.blocked.250.subj <- df.blocked.250 %>%
+                  group_by(Subject) %>%
+                  top_n(n=1,wt=ItemID)
+
+
+
+fit.mixed.50 <- readRDS(paste0(paste0("output_", dataset), "/fit.mixed.50.rds"))
+fit.mixed.100 <- readRDS(paste0(paste0("output_", dataset), "/fit.mixed.100.rds"))
+fit.mixed.250 <- readRDS(paste0(paste0("output_", dataset), "/fit.mixed.250.rds"))
+
+
+
+posterior_samples_50_mixed_lst <- rstan::extract(fit.mixed.50)
+posterior_samples_100_mixed_lst <- rstan::extract(fit.mixed.100)
+posterior_samples_250_mixed_lst <- rstan::extract(fit.mixed.250)
+
+posterior_samples.mixed.50 <- as.data.frame(fit.mixed.50)
+posterior_samples.mixed.100 <- as.data.frame(fit.mixed.100)
+posterior_samples.mixed.250 <- as.data.frame(fit.mixed.250)
+
+
+
+
+df.mixed.50 <- add_subject_level_params(df.mixed.50, posterior_samples_50_mixed_lst, "Subject", "useWeightSubj")
+df.mixed.50.subj <- df.mixed.50 %>%
+                  group_by(Subject) %>%
+                  top_n(n=1,wt=ItemID)
+df.mixed.100 <- add_subject_level_params(df.mixed.100, posterior_samples_100_mixed_lst, "Subject", "useWeightSubj")
+
+df.mixed.100.subj <- df.mixed.100 %>%
+                  group_by(Subject) %>%
+                  top_n(n=1,wt=ItemID)
+
+df.mixed.250 <- add_subject_level_params(df.mixed.250, posterior_samples_250_mixed_lst, "Subject", "useWeightSubj")
+
+df.mixed.250.subj <- df.mixed.250 %>%
+                  group_by(Subject) %>%
+                  top_n(n=1,wt=ItemID)
+
+
+
+
+
+
+
+```
+
+
+
+
+
+```{r}
+
+ggplot() +
+      stat_ydensity(data=posterior_samples.blocked.50, aes(x="50", y=inv_logit(useWeightGrp_icpt)), adjust=2) +
+      stat_ydensity(data=posterior_samples.blocked.100, aes(x="100", y=inv_logit(useWeightGrp_icpt)), adjust=2) +
+      stat_ydensity(data=posterior_samples.blocked.250, aes(x="250", y=inv_logit(useWeightGrp_icpt)), adjust=2) +
+      #scale_x_discrete()
+      coord_cartesian(ylim=c(0,1)) +
+      xlim("50","100","250") + ggtitle("Blocked") +
+      labs(x="Participants", y="p(weight) intercept") +
+      paper_theme
+
+
+ggplot() +
+      stat_ydensity(data=posterior_samples.mixed.50, aes(x="50", y=inv_logit(useWeightGrp_icpt)), adjust=2) +
+      stat_ydensity(data=posterior_samples.mixed.100, aes(x="100", y=inv_logit(useWeightGrp_icpt)), adjust=2) +
+      stat_ydensity(data=posterior_samples.mixed.250, aes(x="250", y=inv_logit(useWeightGrp_icpt)), adjust=2) +
+      #scale_x_discrete()
+      coord_cartesian(ylim=c(0,1)) +
+      xlim("50","100","250") +
+      labs(x="Participants", y="p(weight) intercept") + ggtitle("Mixed") +
+      paper_theme
+
+
+
+ggplot() +
+      stat_ydensity(data=posterior_samples.blocked.50, aes(x="50", useWeightGrp_lowmem), adjust=2) +
+      stat_ydensity(data=posterior_samples.blocked.100, aes(x="100", y=useWeightGrp_lowmem), adjust=2) +
+      stat_ydensity(data=posterior_samples.blocked.250, aes(x="250", y=useWeightGrp_lowmem), adjust=2) +
+      #scale_x_discrete()
+      xlim("50","100","250") + ggtitle("Blocked") +
+      labs(x="Participants", y="beta_lowmem") +
+      paper_theme +
+        coord_cartesian(ylim=c(-4,4)) +
+      geom_hline(yintercept=0,linetype="dotted")
+
+
+
+ggplot() +
+      stat_ydensity(data=posterior_samples.blocked.50, aes(x="50", useWeightGrp_highmem), adjust=2) +
+      stat_ydensity(data=posterior_samples.blocked.100, aes(x="100", y=useWeightGrp_highmem), adjust=2) +
+      stat_ydensity(data=posterior_samples.blocked.250, aes(x="250", y=useWeightGrp_highmem), adjust=2) +
+      #scale_x_discrete()
+      xlim("50","100","250") + ggtitle("Blocked") +
+      labs(x="Participants", y="beta_highmem") +
+      paper_theme +
+      coord_cartesian(ylim=c(-4,4)) +
+      geom_hline(yintercept=0,linetype="dotted")
+
+
+
+ggplot() +
+      stat_ydensity(data=posterior_samples.mixed.50, aes(x="50", y=inv_logit(useWeightGrp_icpt)), adjust=2) +
+      stat_ydensity(data=posterior_samples.mixed.100, aes(x="100", y=inv_logit(useWeightGrp_icpt)), adjust=2) +
+      stat_ydensity(data=posterior_samples.mixed.250, aes(x="250", y=inv_logit(useWeightGrp_icpt)), adjust=2) +
+      #scale_x_discrete()
+      coord_cartesian(ylim=c(0,1)) +
+      xlim("50","100","250") +
+      labs(x="Participants", y="p(weight) intercept") + ggtitle("Mixed") +
+      paper_theme
+
+
+
+ggplot() +
+      stat_ydensity(data=posterior_samples.mixed.50, aes(x="50", useWeightGrp_lowmem), adjust=2) +
+      stat_ydensity(data=posterior_samples.mixed.100, aes(x="100", y=useWeightGrp_lowmem), adjust=2) +
+      stat_ydensity(data=posterior_samples.mixed.250, aes(x="250", y=useWeightGrp_lowmem), adjust=2) +
+      #scale_x_discrete()
+      xlim("50","100","250") + ggtitle("Mixed") +
+      labs(x="Participants", y="beta_lowmem") +
+      paper_theme +
+        coord_cartesian(ylim=c(-4,4)) +
+      geom_hline(yintercept=0,linetype="dotted")
+
+
+
+ggplot() +
+      stat_ydensity(data=posterior_samples.mixed.50, aes(x="50", useWeightGrp_highmem), adjust=2) +
+      stat_ydensity(data=posterior_samples.mixed.100, aes(x="100", y=useWeightGrp_highmem), adjust=2) +
+      stat_ydensity(data=posterior_samples.mixed.250, aes(x="250", y=useWeightGrp_highmem), adjust=2) +
+      #scale_x_discrete()
+      xlim("50","100","250") + ggtitle("Mixed") +
+      labs(x="Participants", y="beta_highmem") +
+      paper_theme +
+      coord_cartesian(ylim=c(-4,4)) +
+      geom_hline(yintercept=0,linetype="dotted")
+
+
+
+
+```
+
+
+```{r}
+
+
+ggplot(data=df.blocked.50.subj, aes(x=trueUseWeightSubj_icpt, y=mean_useWeightSubj_icpt)) + 
+          geom_abline() +
+
+          geom_point(size=2, alpha=0.5)+
+          labs(x="True P(weight) intercept", y = "Inferred P(weight) intercept") +
+          paper_theme + ggtitle("Blocked (N=50)")
+            
+        
+
+ggplot(data=df.mixed.50.subj, aes(x=trueUseWeightSubj_icpt, y=mean_useWeightSubj_icpt)) + 
+          geom_abline() +
+          geom_point(size=2, alpha=0.5)+
+          labs(x="True P(weight) intercept", y = "Inferred P(weight) intercept") +
+          paper_theme + ggtitle("Mixed (N=50)")
+            
+        
+  
+```
+
+
+
+
+
+```{r}
+posterior_samples.summary <- data.frame(useWeightGrp_icpt.blocked.50 =  median(inv_logit(posterior_samples.blocked.50$useWeightGrp_icpt)),
+                                        useWeightGrp_icpt.blocked.100 =  median(inv_logit(posterior_samples.blocked.100$useWeightGrp_icpt)),
+                                        useWeightGrp_icpt.blocked.250 =  median(inv_logit(posterior_samples.blocked.250$useWeightGrp_icpt)),
+                                        useWeightGrp_icpt.mixed.50 =  median(inv_logit(posterior_samples.mixed.50$useWeightGrp_icpt)),
+                                        useWeightGrp_icpt.mixed.100 =  median(inv_logit(posterior_samples.mixed.100$useWeightGrp_icpt)),
+                                        useWeightGrp_icpt.mixed.250 =  median(inv_logit(posterior_samples.mixed.250$useWeightGrp_icpt)),
+                                        
+                                        useWeightGrp_icpt.blocked.50.high =  quantile(inv_logit(posterior_samples.blocked.50$useWeightGrp_icpt),0.975),
+                                        useWeightGrp_icpt.blocked.100.high =  quantile(inv_logit(posterior_samples.blocked.100$useWeightGrp_icpt),0.975),
+                                        useWeightGrp_icpt.blocked.250.high =  quantile(inv_logit(posterior_samples.blocked.250$useWeightGrp_icpt),0.975),
+                                        useWeightGrp_icpt.blocked.50.low =  quantile(inv_logit(posterior_samples.blocked.50$useWeightGrp_icpt),0.025),
+                                        useWeightGrp_icpt.blocked.100.low =  quantile(inv_logit(posterior_samples.blocked.100$useWeightGrp_icpt),0.025),
+                                        useWeightGrp_icpt.blocked.250.low =  quantile(inv_logit(posterior_samples.blocked.250$useWeightGrp_icpt),0.025),
+        
+                                        useWeightGrp_icpt.mixed.50.high =  quantile(inv_logit(posterior_samples.mixed.50$useWeightGrp_icpt),0.975),
+                                        useWeightGrp_icpt.mixed.100.high =  quantile(inv_logit(posterior_samples.mixed.100$useWeightGrp_icpt),0.975),
+                                        useWeightGrp_icpt.mixed.250.high =  quantile(inv_logit(posterior_samples.mixed.250$useWeightGrp_icpt),0.975),
+                                        useWeightGrp_icpt.mixed.50.low =  quantile(inv_logit(posterior_samples.mixed.50$useWeightGrp_icpt),0.025),
+                                        useWeightGrp_icpt.mixed.100.low =  quantile(inv_logit(posterior_samples.mixed.100$useWeightGrp_icpt),0.025),
+                                        useWeightGrp_icpt.mixed.250.low =  quantile(inv_logit(posterior_samples.mixed.250$useWeightGrp_icpt),0.025))
+
+                                        
+posterior_samples.summary$useWeightGrp_icpt.blocked.50.diff = posterior_samples.summary$useWeightGrp_icpt.blocked.50.high - posterior_samples.summary$useWeightGrp_icpt.blocked.50.low
+posterior_samples.summary$useWeightGrp_icpt.blocked.100.diff = posterior_samples.summary$useWeightGrp_icpt.blocked.100.high - posterior_samples.summary$useWeightGrp_icpt.blocked.100.low
+posterior_samples.summary$useWeightGrp_icpt.blocked.250.diff = posterior_samples.summary$useWeightGrp_icpt.blocked.250.high - posterior_samples.summary$useWeightGrp_icpt.blocked.250.low
+                                        
+posterior_samples.summary$useWeightGrp_icpt.mixed.50.diff = posterior_samples.summary$useWeightGrp_icpt.mixed.50.high - posterior_samples.summary$useWeightGrp_icpt.mixed.50.low
+posterior_samples.summary$useWeightGrp_icpt.mixed.100.diff = posterior_samples.summary$useWeightGrp_icpt.mixed.100.high - posterior_samples.summary$useWeightGrp_icpt.mixed.100.low
+posterior_samples.summary$useWeightGrp_icpt.mixed.250.diff = posterior_samples.summary$useWeightGrp_icpt.mixed.250.high - posterior_samples.summary$useWeightGrp_icpt.mixed.250.low
+
+
+
+                    
+
+posterior_samples.summary$useWeightGrp_icpt.blocked.50.diff
+posterior_samples.summary$useWeightGrp_icpt.blocked.100.diff
+posterior_samples.summary$useWeightGrp_icpt.blocked.250.diff
+
+
+posterior_samples.summary$useWeightGrp_icpt.mixed.50.diff
+posterior_samples.summary$useWeightGrp_icpt.mixed.100.diff
+posterior_samples.summary$useWeightGrp_icpt.mixed.250.diff
+                             
+
+      
+                                        
+                                        
+                                        
+                                                
+```
+
+
+```{r}
+
+
+table_data <- data.frame(
+  Group = c("Blocked (50)", "Blocked (100)", "Blocked (250)", "Mixed (50)", "Mixed (100)", "Mixed (250)"),
+  Median = c(posterior_samples.summary$useWeightGrp_icpt.blocked.50,
+             posterior_samples.summary$useWeightGrp_icpt.blocked.100,
+             posterior_samples.summary$useWeightGrp_icpt.blocked.250,
+             posterior_samples.summary$useWeightGrp_icpt.mixed.50,
+             posterior_samples.summary$useWeightGrp_icpt.mixed.100,
+             posterior_samples.summary$useWeightGrp_icpt.mixed.250),
+  `2.5%` = c(posterior_samples.summary$useWeightGrp_icpt.blocked.50.low,
+             posterior_samples.summary$useWeightGrp_icpt.blocked.100.low,
+             posterior_samples.summary$useWeightGrp_icpt.blocked.250.low,
+             posterior_samples.summary$useWeightGrp_icpt.mixed.50.low,
+             posterior_samples.summary$useWeightGrp_icpt.mixed.100.low,
+             posterior_samples.summary$useWeightGrp_icpt.mixed.250.low),
+  `97.5%` = c(posterior_samples.summary$useWeightGrp_icpt.blocked.50.high,
+              posterior_samples.summary$useWeightGrp_icpt.blocked.100.high,
+              posterior_samples.summary$useWeightGrp_icpt.blocked.250.high,
+              posterior_samples.summary$useWeightGrp_icpt.mixed.50.high,
+              posterior_samples.summary$useWeightGrp_icpt.mixed.100.high,
+              posterior_samples.summary$useWeightGrp_icpt.mixed.250.high),
+  `95%CI Range` = c(posterior_samples.summary$useWeightGrp_icpt.blocked.50.diff,
+                    posterior_samples.summary$useWeightGrp_icpt.blocked.100.diff,
+                    posterior_samples.summary$useWeightGrp_icpt.blocked.250.diff,
+                    posterior_samples.summary$useWeightGrp_icpt.mixed.50.diff,
+                    posterior_samples.summary$useWeightGrp_icpt.mixed.100.diff,
+                    posterior_samples.summary$useWeightGrp_icpt.mixed.250.diff)
+)
+
+kable(table_data, format = "html", 
+      col.names = c("Group", "Median", "2.5%", "97.5%", "95%CI Range")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+```
