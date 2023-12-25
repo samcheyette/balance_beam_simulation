@@ -1,0 +1,132 @@
+---
+title: "BalanceBeamsSimulation"
+author: "Sam"
+date: "Nov 7, 2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,fig.width=4, fig.height=3,fig.align = "center",cache=TRUE)
+```
+
+```{r, include=FALSE, echo=FALSE}
+library(rstan)
+library(lme4)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(broom)
+library(gridExtra)
+library(latex2exp)
+library(readr)
+library(kableExtra)
+#library(knitr)
+
+
+
+paper_theme <- theme_classic() + theme( axis.title.x = element_text(size=18),
+  axis.text.x=element_text(colour="black", 
+                           size = 14), 
+  axis.title.y = element_text(size = 18, vjust = 1),
+  axis.text.y  = element_text(size = 14),
+  strip.text=element_text(size=16),
+  legend.title=element_text(size=18),
+  title=element_text(size=14),
+  legend.text=element_text(size=16))  
+
+inv_logit <- function(x) { exp(x)/(1+exp(x))}
+
+
+
+# Function to extract and add subject-level parameter means to df.blocked_10
+add_subject_level_params <- function(df, posterior_samples_lst,
+                                     subject_id_var, param_prefix) {
+  # Extract posterior samples
+
+  # Get the list of parameter names that start with the specified prefix
+  param_names <- grep(paste0("^", param_prefix), names(posterior_samples_lst), value = TRUE)
+  
+  if (length(param_names) > 0) {
+    for (param_name in param_names) {
+      # Initialize a vector to store means
+      subject_means <- rep(NA, nrow(df))
+      
+      for (s in 1:df$NSUBJ) {
+        # Find the rows in df.blocked_10 that correspond to subject s
+        subject_rows <- df[[subject_id_var]] == s
+        
+        # Calculate the mean for this subject from posterior samples
+        subject_means[subject_rows] <- mean(posterior_samples_lst[[param_name]][, s])
+      }
+      
+      # Add means to df.blocked_10 as a new column
+      df[paste0("mean_", param_name)] <- subject_means
+    }
+  } else {
+    cat("No matching parameters found with prefix '", param_prefix, "'.\n")
+  }
+  
+  return(df)
+}
+
+
+
+```
+
+
+```{r}
+
+
+
+df.0 <- read.csv("datasets/fake_dataset_150_0.csv")
+posterior_samples.0 <- as.data.frame(rstan::extract(readRDS("output_150/fit.150_0.rds")))
+
+df.0.5 <- read.csv("datasets/fake_dataset_150_0.5.csv")
+posterior_samples.0.5 <- as.data.frame(rstan::extract(readRDS("output_150/fit.150_0.5.rds")))
+
+df.1<- read.csv("datasets/fake_dataset_150_1.csv")
+posterior_samples.1 <- as.data.frame(rstan::extract(readRDS("output_150/fit.150_1.rds")))
+
+df.1.5 <- read.csv("datasets/fake_dataset_150_1.5.csv")
+posterior_samples.1.5 <- as.data.frame(rstan::extract(readRDS("output_150/fit.150_1.5.rds")))
+
+
+posterior_samples.0$diff_0.5 <- posterior_samples.0.5$useWeightGrp_icpt - posterior_samples.0$useWeightGrp_icpt
+posterior_samples.0$diff_1 <- posterior_samples.1$useWeightGrp_icpt - posterior_samples.0$useWeightGrp_icpt
+posterior_samples.0$diff_1.5 <- posterior_samples.1.5$useWeightGrp_icpt - posterior_samples.0$useWeightGrp_icpt
+
+```
+
+
+
+```{r, fig.width=5,fig.height=3.5}
+
+
+ggplot() +
+      stat_ydensity(data=posterior_samples.0, aes(x="0", y=inv_logit(useWeightGrp_icpt)), adjust=1) +
+      stat_ydensity(data=posterior_samples.0.5, aes(x="0.5", y=inv_logit(useWeightGrp_icpt)), adjust=1) +
+      stat_ydensity(data=posterior_samples.1, aes(x="1", y=inv_logit(useWeightGrp_icpt)), adjust=1) +
+      stat_ydensity(data=posterior_samples.1.5, aes(x="1.5", y=inv_logit(useWeightGrp_icpt)), adjust=1) +
+
+      #scale_x_discrete()
+      coord_cartesian(ylim=c(0,1)) +
+      labs(x="Icpt difference from blocked", y="P(weight) intercept") +
+      paper_theme
+
+ggplot() +
+      geom_hline(yintercept=0, linetype="dotted") +
+     stat_ydensity(data=posterior_samples.0, aes(x="0.5", y=diff_0.5), adjust=1) +
+     stat_ydensity(data=posterior_samples.0, aes(x="1", y=diff_1), adjust=1) +
+     stat_ydensity(data=posterior_samples.0, aes(x="1.5", y=diff_1.5), adjust=1) +
+
+      labs(x="Icpt difference (logits)", y="Posterior difference") +
+      paper_theme
+
+
+
+quantile(posterior_samples.0$diff_0.5, c(0.025, 0.5, 0.975))
+quantile(posterior_samples.0$diff_1, c(0.025, 0.5, 0.975))
+quantile(posterior_samples.0$diff_1.5, c(0.025, 0.5, 0.975))
+
+```
+

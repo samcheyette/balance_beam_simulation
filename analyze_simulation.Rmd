@@ -17,9 +17,7 @@ library(tidyr)
 library(dplyr)
 library(broom)
 library(gridExtra)
-library(patchwork)
 library(latex2exp)
-library(GGally) # for ggpairs 
 library(readr)
 library(kableExtra)
 #library(knitr)
@@ -300,6 +298,8 @@ ggplot() +
       coord_cartesian(ylim=c(-4,4)) +
       geom_hline(yintercept=0,linetype="dotted")
 
+
+#mean(posterior_samples.blocked.250$useWeightGrp_icpt)
 
 
 
